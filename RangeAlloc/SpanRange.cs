@@ -34,28 +34,28 @@ public struct SpanRange<T> : IEquatable<SpanRange<T>> where T : unmanaged, IEqua
     public bool Equals(SpanRange<T> other) => index.Equals(other.index) && length.Equals(other.length);
     public override int GetHashCode() => HashCode.Combine(index, length);
 
-    public static bool operator ==(SpanRange<T> left, SpanRange<T> right) => left.Equals(right);
-    public static bool operator !=(SpanRange<T> left, SpanRange<T> right) => !(left == right);
+    public static bool operator ==(in SpanRange<T> left, in SpanRange<T> right) => left.Equals(right);
+    public static bool operator !=(in SpanRange<T> left, in SpanRange<T> right) => !(left == right);
 
     /// <summary>
     /// left in right ?
     /// </summary>
-    public static bool operator <(SpanRange<T> left, SpanRange<T> right) => left.index > right.index && left.LastB < right.LastB;
+    public static bool operator <(in SpanRange<T> left, in SpanRange<T> right) => left.index > right.index && left.LastB < right.LastB;
     /// <summary>
     /// left in or eq right ?
     /// </summary>
-    public static bool operator <=(SpanRange<T> left, SpanRange<T> right) => left.index >= right.index && left.LastB <= right.LastB;
+    public static bool operator <=(in SpanRange<T> left, in SpanRange<T> right) => left.index >= right.index && left.LastB <= right.LastB;
     /// <summary>
     /// right in left ?
     /// </summary>
-    public static bool operator >(SpanRange<T> left, SpanRange<T> right) => left.index < right.index && left.LastB > right.LastB;
+    public static bool operator >(in SpanRange<T> left, in SpanRange<T> right) => left.index < right.index && left.LastB > right.LastB;
     /// <summary>
     /// right in or eq left ?
     /// </summary>
-    public static bool operator >=(SpanRange<T> left, SpanRange<T> right) => left.index <= right.index && left.LastB >= right.LastB;
+    public static bool operator >=(in SpanRange<T> left, in SpanRange<T> right) => left.index <= right.index && left.LastB >= right.LastB;
 
-    internal SpanRange<T> SliceLeft(SpanRange<T> other) => new(index, Nums.Sub<T>(other.index, index));
-    internal SpanRange<T> SliceRight(SpanRange<T> other) => new(other.LastB, Nums.Sub<T>(LastB, other.LastB));
+    internal SpanRange<T> SliceLeft(in SpanRange<T> other) => new(index, Nums.Sub<T>(other.index, index));
+    internal SpanRange<T> SliceRight(in SpanRange<T> other) => new(other.LastB, Nums.Sub<T>(LastB, other.LastB));
 
     private string GetDebuggerDisplay() => ToString();
     public override string ToString() => $"{index} .. {LastB}";

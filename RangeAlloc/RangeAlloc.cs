@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Text;
 
 namespace Volight.Allocators;
 
@@ -16,13 +17,37 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
     SpanRange<T> range;
     Node root;
 
+    public string DebugPrint()
+    {
+        var sb = new StringBuilder();
+        Rec(root, "", "○──", " ", " ");
+        void Rec(in Node node, string prefix, string lr, string pl, string pr)
+        {
+            if (node.Sub != null) Rec(node.Sub.Right, $"{pr}  ", "╭──", $"{pr}  |", $"{pr}   ");
+            PrintSelf(node, prefix, lr);
+            if (node.Sub != null) Rec(node.Sub.Left, $"{pl}  ", "╰──", $"{pl}   ", $"{pl}  |");
+        }
+        void PrintSelf(in Node node, string prefix, string lr)
+        {
+            sb.Append(prefix);
+            sb.Append(lr);
+            if (node.Sub != null) sb.Append('┤');
+            else sb.Append('─');
+            sb.Append('(');
+            sb.Append(node.Range);
+            sb.Append(')');
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+
     [DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
     struct Node
     {
         public SpanRange<T> Range;
-        public Box<Sub>? Sub;
+        public Sub? Sub;
 
-        public Node(SpanRange<T> range, Box<Sub>? sub)
+        public Node(SpanRange<T> range, Sub? sub)
         {
             Range = range;
             Sub = sub;
@@ -33,7 +58,7 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
     }
 
     [DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
-    struct Sub
+    class Sub
     {
         public Node Left;
         public Node Right;
@@ -48,17 +73,6 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
         public override string ToString() => $"{{ L{Left}; R{Right} }}";
     }
 
-    [DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
-    class Box<V>
-    {
-        public V Value;
-
-        public Box(V value) => Value = value;
-
-        private string? GetDebuggerDisplay() => ToString();
-        public override string? ToString() => Value?.ToString();
-    }
-
     public RangeAlloc(T index, T length) : this(new SpanRange<T>(index, length)) { }
 
     public RangeAlloc(SpanRange<T> root)
@@ -67,7 +81,8 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
     }
 
     public bool Alloc(T index, T length) => Alloc(new(index, length));
-    public bool Alloc(SpanRange<T> range)
+    public bool Alloc(SpanRange<T> range) => Alloc(in range);
+    public bool Alloc(in SpanRange<T> range)
     {
         if (range.IsEmpty) return true;
 
@@ -90,12 +105,12 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
         {
             if (node.Sub == null)
             {
-                node.Sub = new(new(new(node.Range.SliceLeft(range), null), new(node.Range.SliceRight(range), null)));
+                node.Sub = new(new(node.Range.SliceLeft(range), null), new(node.Range.SliceRight(range), null));
                 return true;
             }
             else
             {
-                ref var sub = ref node.Sub.Value;
+                var sub = node.Sub;
                 if (range <= sub.Left.Range)
                 {
                     if (range == sub.Left.Range)
