@@ -101,21 +101,23 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
             return true;
         }
 
+        if (node.Sub == null)
+        {
+            goto make_sub;
+        }
+
+        ref var sub = ref node.Sub;
+
         for (; ; )
         {
-            if (node.Sub == null)
+            if (range <= sub.Left.Range)
             {
-                node.Sub = new(new(node.Range.SliceLeft(range), null), new(node.Range.SliceRight(range), null));
-                return true;
-            }
-            else
-            {
-                var sub = node.Sub;
-                if (range <= sub.Left.Range)
+                if (sub.Left.Sub == null)
                 {
                     if (range == sub.Left.Range)
                     {
-                        sub.Left.Range = node.Range.SliceLeft(range);
+                        node.Range = sub.Right.Range;
+                        sub = null;
                         return true;
                     }
                     else if (range.Right == sub.Left.Range.Right)
@@ -125,15 +127,23 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
                     }
                     else if (range.Right <= sub.Left.Range.Right)
                     {
-                        node = ref sub.Left;
-                        continue;
+                        goto make_sub;
                     }
                 }
-                else if (range <= sub.Right.Range)
+                else
+                {
+                    node = ref sub.Left;
+                    continue;
+                }
+            }
+            else if (range <= sub.Right.Range)
+            {
+                if (sub.Right.Sub == null)
                 {
                     if (range == sub.Right.Range)
                     {
-                        sub.Right.Range = node.Range.SliceRight(range);
+                        node.Range = sub.Left.Range;
+                        sub = null;
                         return true;
                     }
                     else if (range.Left == sub.Right.Range.Left)
@@ -143,13 +153,22 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
                     }
                     else if (range.Left >= sub.Right.Range.Left)
                     {
-                        node = ref sub.Right;
-                        continue;
+                        goto make_sub;
                     }
+                }
+                else
+                {
+                    node = ref sub.Right;
+                    continue;
                 }
             }
             return false;
+
         }
+
+    make_sub:
+        node.Sub = new(new(node.Range.SliceLeft(range), null), new(node.Range.SliceRight(range), null));
+        return true;
     }
 
 }
