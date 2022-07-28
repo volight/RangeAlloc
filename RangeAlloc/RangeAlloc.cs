@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
-using System.Text;
+using System.Runtime.CompilerServices;
 
 namespace Volight.Allocators;
 
@@ -19,156 +21,259 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
 
     public string DebugPrint()
     {
-        var sb = new StringBuilder();
-        Rec(root, "", "○──", " ", " ");
-        void Rec(in Node node, string prefix, string lr, string pl, string pr)
+        return "";
+    }
+
+    #region Node
+
+    abstract class Node { }
+
+    abstract class Node<V, S, P> : Node, IEnumerable<V> where S : Node<V, S, P> where P : Node
+    {
+        public P? Parent;
+        public byte Length;
+        public V L;
+        public V M;
+        public V R;
+
+        public Node(P? parent, V l, V m, V r, byte len)
         {
-            if (node.Sub != null) Rec(node.Sub.Right, $"{pr}  ", "╭──", $"{pr}  |", $"{pr}   ");
-            PrintSelf(node, prefix, lr);
-            if (node.Sub != null) Rec(node.Sub.Left, $"{pl}  ", "╰──", $"{pl}   ", $"{pl}  |");
+            Parent = parent;
+            L = l;
+            M = m;
+            R = r;
+            Length = len;
         }
-        void PrintSelf(in Node node, string prefix, string lr)
+        public bool IsEmpty => Length <= 0;
+        public bool IsFull => Length >= 3;
+
+        public ref V this[byte index]
         {
-            sb.Append(prefix);
-            sb.Append(lr);
-            if (node.Sub != null) sb.Append('┤');
-            else sb.Append('─');
-            sb.Append('(');
-            sb.Append(node.Range);
-            sb.Append(')');
-            sb.AppendLine();
+            get
+            {
+                if (index == 0) return ref L;
+                else if (index == 1) return ref M;
+                else return ref R;
+            }
         }
-        return sb.ToString();
+
+        protected string GetDebuggerDisplay() => ToString();
+        public override string ToString() => $"{{ {string.Join(", ", this)} }}";
+        public IEnumerator<V> GetEnumerator()
+        {
+            for (byte i = 0; i < Length; i++) yield return i switch { 0 => L, 1 => M, _ => R };
+        }
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     [DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
-    struct Node
+    sealed class IndexNode : Node<Node?, IndexNode, IndexNode>
     {
         public SpanRange<T> Range;
-        public Sub? Sub;
-
-        public Node(SpanRange<T> range, Sub? sub)
-        {
-            Range = range;
-            Sub = sub;
-        }
-
-        private string GetDebuggerDisplay() => ToString();
-        public override string ToString() => $"({Range}) {Sub}";
+        public IndexNode(IndexNode? parent, SpanRange<T> range, Node l) : base(parent, l, null, null, 1) { Range = range; }
+        public IndexNode(IndexNode? parent, SpanRange<T> range, Node l, Node m) : base(parent, l, m, null, 2) { Range = range; }
     }
 
     [DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
-    class Sub
+    sealed class LeafNode : Node<SpanRange<T>, LeafNode, IndexNode>
     {
-        public Node Left;
-        public Node Right;
-
-        public Sub(Node left, Node right)
-        {
-            Left = left;
-            Right = right;
-        }
-
-        private string GetDebuggerDisplay() => ToString();
-        public override string ToString() => $"{{ L{Left}; R{Right} }}";
+        public LeafNode(IndexNode? parent, SpanRange<T> l) : base(parent, l, default, default, 1) { }
+        public LeafNode(IndexNode? parent, SpanRange<T> l, SpanRange<T> m) : base(parent, l, m, default, 2) { }
     }
 
-    public RangeAlloc(T index, T length) : this(new SpanRange<T>(index, length)) { }
+    #endregion
+
+    public RangeAlloc(T index, T length) : this(SpanRange.FromLength(index, length)) { }
 
     public RangeAlloc(SpanRange<T> root)
     {
-        this.root = new RangeAlloc<T>.Node(range = root, null);
+        this.root = new LeafNode(null, range = root);
     }
 
-    public bool Alloc(T index, T length) => Alloc(new(index, length));
-    public bool Alloc(SpanRange<T> range) => Alloc(in range);
-    public bool Alloc(in SpanRange<T> range)
+    public bool Alloc(T index, T length) => Alloc(SpanRange.FromLength(index, length));
+    public bool Alloc(SpanRange<T> range)
     {
+        // alias:
+        // nl nr = node left ; node right
+        // il ir = input left ; input right
+
+        if (range.right < range.left) return false;
         if (range.IsEmpty) return true;
 
         ref var node = ref root;
 
-        if (range > node.Range) return false;
-
-        if (range.Right == node.Range.Right)
+    rl: for (; ; )
         {
-            node.Range = node.Range.SliceLeft(range);
+            if (node is LeafNode leaf)
+            {
+                for (byte i = 0; i < leaf.Length; i++)
+                {
+                    ref var lmr = ref leaf[i];
+                    if (lmr.left == range.left)
+                    {
+                        // nl .. nr
+                        // il .. ir
+                        // =>
+                        // [] remove
+                        if (lmr.right == range.right)
+                        {
+                            switch (leaf.Length)
+                            {
+                                // [n, _, _]
+                                case 1:
+                                    if (node == root) goto sub_len;
+                                    throw new NotImplementedException("todo");
+                                // [x, x, _]
+                                case 2:
+                                    // [n, x, _]
+                                    if (i == 0)
+                                    {
+                                        leaf.L = leaf.M;
+                                        goto sub_len;
+                                    }
+                                    // [x, n, _]
+                                    else goto sub_len;
+                                // [x, x, x]
+                                default:
+                                    // [n, x, x]
+                                    if (i == 0)
+                                    {
+                                        leaf.L = leaf.M;
+                                        leaf.M = leaf.R;
+                                        goto sub_len;
+                                    }
+                                    // [x, n, x]
+                                    else if (i == 0)
+                                    {
+                                        leaf.M = leaf.R;
+                                        goto sub_len;
+                                    }
+                                    // [x, x, n]
+                                    else goto sub_len;
+                            }
+                        sub_len:
+                            leaf.Length--;
+                            return true;
+                        }
+                        // nl .. nr
+                        // il ..    ir
+                        else if (lmr.right < range.right) return false;
+                        // nl ..    nr
+                        // il .. ir
+                        // =>
+                        // [ir .. nr] edit
+                        else if (lmr.right > range.right)
+                        {
+                            lmr = new(range.right, lmr.right);
+                            return true;
+                        }
+                        // never or impl error
+                        else return false;
+                    }
+                    else if (lmr.right == range.right)
+                    {
+                        //    nl .. nr
+                        // il    .. ir
+                        if (lmr.left > range.left) return false;
+                        // nl    .. nr
+                        //    il .. ir
+                        // =>
+                        // [nl .. il] edit
+                        else if (lmr.left < range.left)
+                        {
+                            lmr = new(lmr.left, range.left);
+                            return true;
+                        }
+                        // never or impl error
+                        else return false;
+                    }
+                    // nl .. nr
+                    //          il .. ir
+                    else if (lmr.right <= range.left) continue;
+                    //          nl .. nr
+                    // il .. ir
+                    else if (lmr.left >= range.right) return false;
+                    // nl    ..    nr
+                    //    il .. ir
+                    // =>
+                    // [nl .. il, ir .. nr] split
+                    else if (lmr.left < range.left && lmr.right > range.right)
+                    {
+                        switch (leaf.Length)
+                        {
+                            // [n, _, _]
+                            case 1:
+                                leaf.M = new(range.right, lmr.right);
+                                goto nr2il;
+                            // [x, x, _]
+                            case 2:
+                                // [n, x, _]
+                                if (i == 0)
+                                {
+                                    leaf.R = leaf.M;
+                                    goto case 1;
+                                }
+                                // [x, n, _]
+                                else
+                                {
+                                    leaf.R = new(range.right, lmr.right);
+                                    goto nr2il;
+                                }
+                            // [x, x, x]
+                            default:
+                                var l = i == 0 ? lmr.left : leaf.L.left;
+                                var r = i == 2 ? lmr.right : leaf.R.right;
+                                LeafNode rln;
+                                switch (i)
+                                {
+                                    // [n, x, x] => [l, r, _] [x, x, _]
+                                    case 0:
+                                        rln = new LeafNode(null, leaf.M, leaf.R);
+                                        leaf.M = new(range.right, lmr.right);
+                                        goto nr2il2;
+                                    // [x, n, x] => [x, l, _] [r, x, _]
+                                    case 1:
+                                        rln = new LeafNode(null, new(range.right, lmr.right), leaf.R);
+                                        goto nr2il2;
+                                    // [x, x, n] => [x, x, _] [l, r, _]
+                                    default:
+                                        rln = new LeafNode(null, lmr, new(range.right, lmr.right));
+                                        lmr = ref rln.L;
+                                        goto nr2il2;
+                                }
+                            nr2il2:
+                                lmr.right = range.left;
+                                leaf.Length--;
+                                node = new IndexNode(leaf.Parent, new(l, r), leaf, rln);
+                                goto balance;
+                        }
+                    nr2il:
+                        lmr.right = range.left;
+                        leaf.Length++;
+                        return true;
+                    }
+                    //    nl .. nr
+                    // il    ..    ir
+                    // ==============
+                    //    nl ..    nr
+                    // il    .. ir
+                    // ==============
+                    // nl    .. nr
+                    //    il ..    ir
+                    else return false;
+                }
+                return false;
+            }
+            else if (node is IndexNode index)
+            {
+                throw new NotImplementedException("todo");
+            }
+            // never or impl error
+            else throw new NotImplementedException("never");
+            balance:
+            // todo
             return true;
         }
-        else if (range.Left == node.Range.Left)
-        {
-            node.Range = node.Range.SliceRight(range);
-            return true;
-        }
-
-        if (node.Sub == null)
-        {
-            goto make_sub;
-        }
-
-        ref var sub = ref node.Sub;
-
-        for (; ; )
-        {
-            if (range <= sub.Left.Range)
-            {
-                if (sub.Left.Sub == null)
-                {
-                    if (range == sub.Left.Range)
-                    {
-                        node.Range = sub.Right.Range;
-                        sub = null;
-                        return true;
-                    }
-                    else if (range.Right == sub.Left.Range.Right)
-                    {
-                        sub.Left.Range = sub.Left.Range.SliceLeft(range);
-                        return true;
-                    }
-                    else if (range.Right <= sub.Left.Range.Right)
-                    {
-                        goto make_sub;
-                    }
-                }
-                else
-                {
-                    node = ref sub.Left;
-                    continue;
-                }
-            }
-            else if (range <= sub.Right.Range)
-            {
-                if (sub.Right.Sub == null)
-                {
-                    if (range == sub.Right.Range)
-                    {
-                        node.Range = sub.Left.Range;
-                        sub = null;
-                        return true;
-                    }
-                    else if (range.Left == sub.Right.Range.Left)
-                    {
-                        sub.Right.Range = sub.Right.Range.SliceRight(range);
-                        return true;
-                    }
-                    else if (range.Left >= sub.Right.Range.Left)
-                    {
-                        goto make_sub;
-                    }
-                }
-                else
-                {
-                    node = ref sub.Right;
-                    continue;
-                }
-            }
-            return false;
-
-        }
-
-    make_sub:
-        node.Sub = new(new(node.Range.SliceLeft(range), null), new(node.Range.SliceRight(range), null));
-        return true;
     }
 
 }

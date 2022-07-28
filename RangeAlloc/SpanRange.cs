@@ -10,55 +10,85 @@ namespace Volight.Allocators;
 [DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
 public struct SpanRange<T> : IEquatable<SpanRange<T>> where T : unmanaged, IEquatable<T>, IComparable<T>
 {
-    internal NumBox<T> index;
-    internal NumBox<T> length;
+    internal NumBox<T> left;
+    internal NumBox<T> right;
 
-    public SpanRange(T index, T length)
+    public SpanRange(T left, T right) : this(new NumBox<T>(left), new NumBox<T>(right)) { }
+    internal SpanRange(NumBox<T> left, NumBox<T> right)
     {
-        this.index = index;
-        this.length = length;
+        this.left = left;
+        this.right = right;
     }
 
-    public T Index => index;
-    public T Length => length;
+    public T Left => left;
+    public T Right => right;
 
-    public bool IsEmpty => Nums.IsZero<T>(length);
+    public T Length => Nums.Sub(right, left);
 
-    public T Last => Nums.Add<T>(index, length);
-    internal NumBox<T> LastB => Last;
-
-    internal NumBox<T> Left => index;
-    internal NumBox<T> Right => Last;
+    public bool IsEmpty => left == right;
 
     public override bool Equals(object? obj) => obj is SpanRange<T> range && Equals(range);
-    public bool Equals(SpanRange<T> other) => index.Equals(other.index) && length.Equals(other.length);
-    public override int GetHashCode() => HashCode.Combine(index, length);
+    public bool Equals(SpanRange<T> other) => left.Equals(other.left) && right.Equals(other.right);
+    public override int GetHashCode() => HashCode.Combine(left, right);
 
-    public static bool operator ==(in SpanRange<T> left, in SpanRange<T> right) => left.Equals(right);
+    public static bool operator ==(in SpanRange<T> left, in SpanRange<T> right) => left.left.Equals(right.left) && left.right.Equals(right.right);
     public static bool operator !=(in SpanRange<T> left, in SpanRange<T> right) => !(left == right);
 
     /// <summary>
     /// left in right ?
     /// </summary>
-    public static bool operator <(in SpanRange<T> left, in SpanRange<T> right) => left.index > right.index && left.LastB < right.LastB;
+    public static bool operator <(in SpanRange<T> left, in SpanRange<T> right) => left.left > right.left && left.right < right.right;
     /// <summary>
     /// left in or eq right ?
     /// </summary>
-    public static bool operator <=(in SpanRange<T> left, in SpanRange<T> right) => left.index >= right.index && left.LastB <= right.LastB;
+    public static bool operator <=(in SpanRange<T> left, in SpanRange<T> right) => left.left >= right.left && left.right <= right.right;
     /// <summary>
     /// right in left ?
     /// </summary>
-    public static bool operator >(in SpanRange<T> left, in SpanRange<T> right) => left.index < right.index && left.LastB > right.LastB;
+    public static bool operator >(in SpanRange<T> left, in SpanRange<T> right) => left.left < right.left && left.right > right.right;
     /// <summary>
     /// right in or eq left ?
     /// </summary>
-    public static bool operator >=(in SpanRange<T> left, in SpanRange<T> right) => left.index <= right.index && left.LastB >= right.LastB;
+    public static bool operator >=(in SpanRange<T> left, in SpanRange<T> right) => left.left <= right.left && left.right >= right.right;
 
-    internal SpanRange<T> SliceLeft(in SpanRange<T> other) => new(index, Nums.Sub<T>(other.index, index));
-    internal SpanRange<T> SliceRight(in SpanRange<T> other) => new(other.LastB, Nums.Sub<T>(LastB, other.LastB));
+    internal SpanRange<T> SliceLeft(in SpanRange<T> other) => new(left, new NumBox<T>(Nums.Sub<T>(other.left, left)));
+    internal SpanRange<T> SliceRight(in SpanRange<T> other) => new(other.right, new NumBox<T>(Nums.Sub<T>(right, other.right)));
 
     private string GetDebuggerDisplay() => ToString();
-    public override string ToString() => $"{index} .. {LastB}";
+    public override string ToString() => $"{left} .. {right}";
+}
+
+public static class SpanRange
+{
+    /// <summary>
+    /// New by index length
+    /// </summary>
+    public static SpanRange<T> FromLength<T>(T index, T length) where T : unmanaged, IEquatable<T>, IComparable<T>
+        => new(index, Nums.Add(index, length));
+
+    /// <summary>
+    /// l1 &lt; r1 &amp;&amp; l2 &lt; r2
+    /// </summary>
+    public static bool Lt<T>(this in SpanRange<T> left, in SpanRange<T> right) where T : unmanaged, IEquatable<T>, IComparable<T>
+        => left.left < right.left && left.right < right.right;
+
+    /// <summary>
+    /// l1 &lt;= r1 &amp;&amp; l2 &lt;= r2
+    /// </summary>
+    public static bool Le<T>(this in SpanRange<T> left, in SpanRange<T> right) where T : unmanaged, IEquatable<T>, IComparable<T>
+        => left.left <= right.left && left.right <= right.right;
+
+    /// <summary>
+    /// l1 &gt; r1 &amp;&amp; l2 &gt; r2
+    /// </summary>
+    public static bool Gt<T>(this in SpanRange<T> left, in SpanRange<T> right) where T : unmanaged, IEquatable<T>, IComparable<T>
+        => left.left > right.left && left.right > right.right;
+
+    /// <summary>
+    /// l1 &gt;= r1 &amp;&amp; l2 &gt;= r2
+    /// </summary>
+    public static bool Ge<T>(this in SpanRange<T> left, in SpanRange<T> right) where T : unmanaged, IEquatable<T>, IComparable<T>
+        => left.left >= right.left && left.right >= right.right;
 }
 
 [DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
