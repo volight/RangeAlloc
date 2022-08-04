@@ -32,18 +32,13 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
 
     abstract class Node { }
 
-    abstract class Node<V, S, P> : Node, IEnumerable<V> where S : Node<V, S, P> where P : Node
+    abstract class Node<V> : Node, IEnumerable<V>
     {
-        public P? Parent;
-        public int Length;
         public V[] Arr;
+        public int Length;
 
-        public Node(P? parent, int len)
-        {
-            Parent = parent;
-            Length = len;
-            Arr = new V[Cap];
-        }
+        protected Node(V[] arr) => Arr = arr;
+
         public bool IsEmpty => Length <= 0;
         public bool IsFull => Length >= Cap;
 
@@ -59,6 +54,18 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
             for (var i = 0; i < Length; i++) yield return Arr[i];
         }
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    abstract class Node<V, S, P> : Node<V> where S : Node<V, S, P> where P : Node
+    {
+        public P? Parent;
+        public int Index;
+
+        public Node(P? parent, int len) : base(new V[Cap])
+        {
+            Parent = parent;
+            Length = len;
+        }
 
         /// <summary><code>
         /// [a, b, c, _, _, _]
@@ -104,10 +111,13 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
     [DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
     sealed class IndexNode : Node<Node?, IndexNode, IndexNode>
     {
-        public SpanRange<T> Range;
-        public IndexNode(IndexNode? parent, SpanRange<T> range) : base(parent, 0) { Range = range; }
-        public IndexNode(IndexNode? parent, SpanRange<T> range, Node a) : base(parent, 1) { Range = range; Arr[0] = a; }
-        public IndexNode(IndexNode? parent, SpanRange<T> range, Node a, Node b) : base(parent, 2) { Range = range; Arr[0] = a; Arr[1] = b; }
+        public SpanRange<T>[] Range;
+        IndexNode(IndexNode? parent, int len) : base(parent, len) { Range = new SpanRange<T>[Cap]; }
+        public IndexNode(IndexNode? parent) : this(parent, 0) { }
+        public IndexNode(IndexNode? parent, SpanRange<T> ra, Node a) : this(parent, 1) { Range[0] = ra; Arr[0] = a; }
+        public IndexNode(IndexNode? parent, SpanRange<T> ra, Node a, SpanRange<T> rb, Node b) : this(parent, 2) { Range[0] = ra; Arr[0] = a; Range[1] = rb; Arr[1] = b; }
+        public IndexNode(IndexNode? parent, LeafNode a) : this(parent, new SpanRange<T>(a.First.left, a.Last.right), a) { }
+        public IndexNode(IndexNode? parent, LeafNode a, LeafNode b) : this(parent, new SpanRange<T>(a.First.left, a.Last.right), a, new SpanRange<T>(b.First.left, b.Last.right), b) { }
     }
 
     [DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
@@ -138,7 +148,6 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
         if (range.IsEmpty) return true;
 
         var node = root;
-        var parent_index = 0;
 
     rl: for (; ; )
         {
@@ -300,7 +309,14 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
             }
             else if (node is IndexNode index)
             {
-                throw new NotImplementedException("todo");
+                for (int i = 0; i < index.Length; i++)
+                {
+                    var nr = index.Range[i];
+                    if (range > nr) continue;
+                    node = index[i];
+                    goto rl;
+                }
+                return false;
             }
             // never or impl error
             else throw new NotImplementedException("never");
@@ -312,7 +328,7 @@ public class RangeAlloc<T> where T : unmanaged, IEquatable<T>, IComparable<T>
         var node = leaf.Parent;
         if (node == null)
         {
-            node = new IndexNode(null, new(leaf.First.left, new_leaf.Last.right), leaf, new_leaf);
+            node = new IndexNode(null, leaf, new_leaf);
             new_leaf.Parent = leaf.Parent = node;
             root = node;
             return;
